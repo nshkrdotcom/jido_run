@@ -108,6 +108,8 @@ All ecosystem packages should use shared building blocks consistently.
 
 Use **Zoi** as the canonical schema + struct validation library.
 
+**Critical Anti-Pattern Warning:** Do not use Ecto-style syntax (`schema do field :id, :string end`) when defining Zoi schemas in Jido. Jido strictly uses the `@schema Zoi.struct(...)` module attribute pattern to avoid macro magic and ensure type safety.
+
 #### Pattern
 
 ```elixir
@@ -150,13 +152,34 @@ defmodule MyPackage.Model do
 end
 ```
 
+#### Complex Schemas
+
+For highly complex data structures, define logical sub-schemas as private module attributes, and compose them into the primary `@schema`. This keeps the code declarative and composable.
+
+```elixir
+  @limits_schema Zoi.object(%{
+                   context: Zoi.integer() |> Zoi.min(1) |> Zoi.nullish(),
+                   output: Zoi.integer() |> Zoi.min(1) |> Zoi.nullish()
+                 })
+
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              id: Zoi.string(),
+              limits: @limits_schema |> Zoi.nullish()
+            },
+            coerce: true
+          )
+```
+
 #### Zoi Checklist
 
-- [ ] Core structs define a `@schema` using `Zoi.struct(__MODULE__, ...)`.
+- [ ] Core structs define a `@schema` using `Zoi.struct(__MODULE__, ...)`. No Ecto-style DSLs are used.
 - [ ] `@type t :: unquote(Zoi.type_spec(@schema))` is present.
 - [ ] `@enforce_keys` and `defstruct` are derived via `Zoi.Struct`.
 - [ ] `schema/0`, `new/1`, and (optionally) `new!/1` are defined.
 - [ ] Validation logic is in the Zoi schema, not scattered across callers.
+- [ ] Complex schemas are composed from private module attributes (sub-schemas) rather than a single massive structure.
 
 ---
 
@@ -179,6 +202,10 @@ Avoid inventing an extra branded root like `Jido.BrowserCamelCase` when `Jido.Br
 ### Splode Errors (Tight, Project-Relevant Types)
 
 Use **Splode** for error composition and classification. Keep error types **tight and specific to the package**.
+
+#### Error Mapping & Telemetry
+- **Standardized Error Mapping:** Packages that wrap external systems or manage complex state must map obscure underlying errors to canonical Jido Splode errors (e.g., mapping HTTP failures to `Jido.Error.RateLimit` or similar) so that Agents can predictably pattern-match failures.
+- **Telemetry:** Significant Actions and state transitions must automatically emit standardized `:telemetry` events (e.g., `[:jido, :my_package, :action, :start | :stop | :exception]`).
 
 #### Pattern
 
@@ -255,7 +282,8 @@ end
 - [ ] Uses **a small set of error classes** (e.g. `:invalid`, `:execution`, `:config`, `:internal`).
 - [ ] Concrete exception structs end in `Error` and are **package-specific**.
 - [ ] Helpers like `validation_error/2`, `config_error/2` exist for common errors.
-- [ ] External errors are normalized to `MyPackage.Error` types.
+- [ ] External errors are strictly normalized to `MyPackage.Error` or core Jido Splode types.
+- [ ] Actions and Sensors correctly emit `:telemetry` events for execution lifecycles.
 
 ---
 
